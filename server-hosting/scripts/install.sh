@@ -48,8 +48,6 @@ WorkingDirectory=/home/ubuntu/.steam/steamapps/common/SatisfactoryDedicatedServe
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl enable satisfactory
-systemctl start satisfactory
 
 # enable auto shutdown: https://github.com/feydan/satisfactory-tools/tree/main/shutdown
 cat << 'EOF' > /home/ubuntu/auto-shutdown.sh
@@ -100,8 +98,39 @@ WorkingDirectory=/home/ubuntu
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl enable auto-shutdown
-systemctl start auto-shutdown
 
 # automated backups to s3 every 5 minutes
-su - ubuntu -c "crontab -l -e ubuntu | { cat; echo \"*/5 * * * * /usr/local/bin/aws s3 sync /home/ubuntu/.config/Epic/FactoryGame/Saved/SaveGames/server s3://$S3_SAVE_BUCKET\"; } | crontab -"
+cat << 'EOF' > /etc/systemd/system/satisfactory-auto-backup.service
+[Unit]
+Description=Automatically backup saves to S3
+After=syslog.target network.target nss-lookup.target network-online.target
+
+[Service]
+Environment="LD_LIBRARY_PATH=./linux64"
+Type=oneshot
+RemainAfterExit=no
+ExecStart=/usr/local/bin/aws s3 sync /home/ubuntu/.config/Epic/FactoryGame/Saved/SaveGames/server s3://$S3_SAVE_BUCKET
+User=ubuntu
+Group=ubuntu
+StandardOutput=journal
+Restart=on-failure
+KillSignal=SIGINT
+WorkingDirectory=/home/ubuntu
+EOF
+
+cat << 'EOF' > /etc/systemd/system/satisfactory-auto-backup.timer
+[Unit]
+Description=Backup Satisfactory saves every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now satisfactory
+systemctl enable --now satisfactory-auto-backup.timer
+systemctl enable --now auto-shutdown
